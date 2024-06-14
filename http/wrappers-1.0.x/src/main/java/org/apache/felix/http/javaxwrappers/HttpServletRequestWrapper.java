@@ -178,9 +178,10 @@ public class HttpServletRequestWrapper extends ServletRequestWrapper
         return this.request.isRequestedSessionIdFromURL();
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public boolean isRequestedSessionIdFromUrl() {
-        return this.request.isRequestedSessionIdFromURL();
+        return this.request.isRequestedSessionIdFromUrl();
     }
 
     @Override
@@ -226,9 +227,9 @@ public class HttpServletRequestWrapper extends ServletRequestWrapper
     @Override
     public javax.servlet.http.Part getPart(final String name) throws IOException, javax.servlet.ServletException {
         try {
-            final Part part = this.request.getPart(name);
-            if (part != null) {
-                return new PartWrapper(part);
+            final Part p = this.request.getPart(name);
+            if (p != null) {
+                return new PartWrapper(p);
             }
             return null;
         } catch ( final jakarta.servlet.ServletException e ) {

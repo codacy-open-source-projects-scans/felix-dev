@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.felix.http.javaxwrappers;
+package org.apache.felix.http.jakartawrappers;
 
 import java.io.IOException;
 import java.security.Principal;
@@ -26,9 +26,13 @@ import java.util.Map;
 
 import org.jetbrains.annotations.NotNull;
 
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletMapping;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpUpgradeHandler;
 import jakarta.servlet.http.Part;
 import jakarta.servlet.http.PushBuilder;
 
@@ -36,15 +40,15 @@ import jakarta.servlet.http.PushBuilder;
  * Http servlet request wrapper
  */
 public class HttpServletRequestWrapper extends ServletRequestWrapper
-    implements javax.servlet.http.HttpServletRequest {
+    implements HttpServletRequest {
 
-    private final HttpServletRequest request;
+    private final javax.servlet.http.HttpServletRequest request;
 
     /**
-     * Create new request
-     * @param r wrapped request
+     * Create new wrapper
+     * @param r Wrapped request
      */
-    public HttpServletRequestWrapper(@NotNull final HttpServletRequest r) {
+    public HttpServletRequestWrapper(@NotNull final javax.servlet.http.HttpServletRequest r) {
         super(r);
         this.request = r;
     }
@@ -55,7 +59,7 @@ public class HttpServletRequestWrapper extends ServletRequestWrapper
     }
 
     @Override
-    public javax.servlet.http.Cookie[] getCookies() {
+    public Cookie[] getCookies() {
         return CookieWrapper.wrap(this.request.getCookies());
     }
 
@@ -145,8 +149,8 @@ public class HttpServletRequestWrapper extends ServletRequestWrapper
     }
 
     @Override
-    public javax.servlet.http.HttpSession getSession(final boolean create) {
-        final HttpSession session = this.request.getSession(create);
+    public HttpSession getSession(final boolean create) {
+        final javax.servlet.http.HttpSession session = this.request.getSession(create);
         if ( session != null ) {
             return new HttpSessionWrapper(session);
         }
@@ -154,7 +158,7 @@ public class HttpServletRequestWrapper extends ServletRequestWrapper
     }
 
     @Override
-    public javax.servlet.http.HttpSession getSession() {
+    public HttpSession getSession() {
         return new HttpSessionWrapper(this.request.getSession());
     }
 
@@ -178,77 +182,78 @@ public class HttpServletRequestWrapper extends ServletRequestWrapper
         return this.request.isRequestedSessionIdFromURL();
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public boolean isRequestedSessionIdFromUrl() {
-        return this.request.isRequestedSessionIdFromURL();
+        return this.request.isRequestedSessionIdFromUrl();
     }
 
     @Override
-    public boolean authenticate(final javax.servlet.http.HttpServletResponse response) throws IOException, javax.servlet.ServletException {
+    public boolean authenticate(final HttpServletResponse response) throws IOException, ServletException {
         try {
-            return this.request.authenticate((HttpServletResponse)org.apache.felix.http.jakartawrappers.ServletResponseWrapper.getWrapper(response));
-        } catch ( final jakarta.servlet.ServletException e ) {
+            return this.request.authenticate((javax.servlet.http.HttpServletResponse)org.apache.felix.http.javaxwrappers.ServletResponseWrapper.getWrapper(response));
+        } catch ( final javax.servlet.ServletException e ) {
             throw ServletExceptionUtil.getServletException(e);
         }
     }
 
     @Override
-    public void login(final String username, final String password) throws javax.servlet.ServletException {
+    public void login(final String username, final String password) throws ServletException {
         try {
             this.request.login(username, password);
-        } catch ( final jakarta.servlet.ServletException e ) {
+        } catch ( final javax.servlet.ServletException e ) {
             throw ServletExceptionUtil.getServletException(e);
         }
     }
 
     @Override
-    public void logout() throws javax.servlet.ServletException {
+    public void logout() throws ServletException {
         try {
             this.request.logout();
-        } catch ( final jakarta.servlet.ServletException e ) {
+        } catch ( final javax.servlet.ServletException e ) {
             throw ServletExceptionUtil.getServletException(e);
         }
     }
 
     @Override
-    public Collection<javax.servlet.http.Part> getParts() throws IOException, javax.servlet.ServletException {
+    public Collection<Part> getParts() throws IOException, ServletException {
         try {
-            final List<javax.servlet.http.Part> result = new ArrayList<>();
-            for(final Part p : this.request.getParts()) {
+            final List<Part> result = new ArrayList<>();
+            for(final javax.servlet.http.Part p : this.request.getParts()) {
                 result.add(new PartWrapper(p));
             }
             return result;
-        } catch ( final jakarta.servlet.ServletException e ) {
+        } catch ( final javax.servlet.ServletException e ) {
             throw ServletExceptionUtil.getServletException(e);
         }
     }
 
     @Override
-    public javax.servlet.http.Part getPart(final String name) throws IOException, javax.servlet.ServletException {
+    public Part getPart(final String name) throws IOException, ServletException {
         try {
-            final Part part = this.request.getPart(name);
-            if (part != null) {
-                return new PartWrapper(part);
+            final javax.servlet.http.Part p = this.request.getPart(name);
+            if (p != null) {
+                return new PartWrapper(p);
             }
             return null;
-        } catch ( final jakarta.servlet.ServletException e ) {
+        } catch ( final javax.servlet.ServletException e ) {
             throw ServletExceptionUtil.getServletException(e);
         }
     }
 
     @Override
-    public <T extends javax.servlet.http.HttpUpgradeHandler> T upgrade(final Class<T> handlerClass) throws IOException, javax.servlet.ServletException {
+    public <T extends HttpUpgradeHandler> T upgrade(final Class<T> handlerClass) throws IOException, ServletException {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public javax.servlet.http.HttpServletMapping getHttpServletMapping() {
+    public HttpServletMapping getHttpServletMapping() {
         return new HttpServletMappingWrapper(this.request.getHttpServletMapping());
     }
 
     @Override
-    public javax.servlet.http.PushBuilder newPushBuilder() {
-        final PushBuilder builder = this.request.newPushBuilder();
+    public PushBuilder newPushBuilder() {
+        final javax.servlet.http.PushBuilder builder = this.request.newPushBuilder();
         if ( builder != null ) {
             return new PushBuilderWrapper(builder);
         }
