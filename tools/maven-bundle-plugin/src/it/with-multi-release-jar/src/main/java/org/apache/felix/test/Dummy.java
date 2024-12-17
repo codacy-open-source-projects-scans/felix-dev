@@ -16,10 +16,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-if (System.properties['os.name'].toLowerCase().contains('windows')) {
-    // This test is not valid on Windows, as last modified date is not accurate enough
-    return
+package org.apache.felix.test;
+public class Dummy {
 }
-String manifest = new File( basedir, "target/classes/META-INF/MANIFEST.MF" ).text
-
-assert manifest.isEmpty()
