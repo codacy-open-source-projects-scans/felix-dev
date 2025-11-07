@@ -20,6 +20,7 @@ import static org.eclipse.jetty.http.UriCompliance.LEGACY;
 import static org.eclipse.jetty.http.UriCompliance.UNAMBIGUOUS;
 import static org.eclipse.jetty.http.UriCompliance.UNSAFE;
 
+import java.lang.reflect.Method;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
@@ -29,16 +30,23 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Dictionary;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+
+import jakarta.servlet.SessionCookieConfig;
+import jakarta.servlet.SessionTrackingMode;
 
 import org.apache.felix.http.base.internal.HttpServiceController;
 import org.apache.felix.http.base.internal.logger.SystemLogger;
 import org.eclipse.jetty.alpn.server.ALPNServerConnectionFactory;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
+import org.eclipse.jetty.ee10.servlet.ServletHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.ee10.servlet.SessionHandler;
-import org.eclipse.jetty.ee10.servlet.ServletHandler;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.UriCompliance;
 import org.eclipse.jetty.http2.server.HTTP2ServerConnectionFactory;
@@ -53,12 +61,14 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.SslConnectionFactory;
 import org.eclipse.jetty.server.handler.ContextHandlerCollection;
+import org.eclipse.jetty.server.handler.SizeLimitHandler;
 import org.eclipse.jetty.server.handler.StatisticsHandler;
 import org.eclipse.jetty.server.handler.gzip.GzipHandler;
 import org.eclipse.jetty.session.HouseKeeper;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ThreadPool;
+import org.eclipse.jetty.util.thread.VirtualThreadPool;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.Constants;
@@ -66,9 +76,6 @@ import org.osgi.framework.InvalidSyntaxException;
 import org.osgi.framework.ServiceFactory;
 import org.osgi.framework.ServiceRegistration;
 import org.osgi.service.servlet.runtime.HttpServiceRuntimeConstants;
-
-import jakarta.servlet.SessionCookieConfig;
-import jakarta.servlet.SessionTrackingMode;
 
 public final class JettyService
 {
@@ -273,8 +280,28 @@ public final class JettyService
         {
 
             final int threadPoolMax = this.config.getThreadPoolMax();
-            if (threadPoolMax >= 0) {
-                this.server = new Server( new QueuedThreadPool(threadPoolMax) );
+            if (!this.config.isUseVirtualThreads() && threadPoolMax >= 0) {
+                this.server = new Server(new QueuedThreadPool(threadPoolMax));
+            } else if (this.config.isUseVirtualThreads()){
+                // See https://jetty.org/docs/jetty/12/programming-guide/arch/threads.html#thread-pool-virtual-threads
+                Method newVirtualThreadPerTaskExecutorMethod = null;
+                try {
+                    newVirtualThreadPerTaskExecutorMethod = Executors.class.getMethod("newVirtualThreadPerTaskExecutor");
+                } catch (NoSuchMethodException e){
+                    throw new IllegalArgumentException("Virtual threads are only available in Java 21 or later, or via preview flags in Java 19-20");
+                }
+                if (threadPoolMax >= 0) {
+                    // Configurable, bounded, virtual thread executor
+                    VirtualThreadPool threadPool = new VirtualThreadPool();
+                    threadPool.setMaxThreads(threadPoolMax);
+                    this.server = new Server(threadPool);
+                } else {
+                    // Simple, unlimited, virtual thread Executor
+                    QueuedThreadPool threadPool = new QueuedThreadPool();
+                    final Executor virtualExecutor = (Executor) newVirtualThreadPerTaskExecutorMethod.invoke(null);
+                    threadPool.setVirtualThreadsExecutor(virtualExecutor);
+                    this.server = new Server(threadPool);
+                }
             } else {
                 this.server = new Server();
             }
@@ -285,7 +312,14 @@ public final class JettyService
             loginService.setUserStore(new UserStore());
             this.server.addBean(loginService);
 
-            ServletContextHandler context = new ServletContextHandler(this.config.getContextPath(),                    
+            // Check if custom headers are configured for Jetty error pages
+            // If so, split them on ## and pass as map to the JettyErrorHandler
+            final String errorPageCustomHeaders = this.config.getFelixJettyErrorPageCustomHeaders();
+            if (errorPageCustomHeaders != null) {
+                addErrorHandler(errorPageCustomHeaders);
+            }
+
+            ServletContextHandler context = new ServletContextHandler(this.config.getContextPath(),
                     ServletContextHandler.SESSIONS);
 
             this.parent = new ContextHandlerCollection(context);
@@ -299,6 +333,14 @@ public final class JettyService
             holder.setAsyncSupported(true);
             context.addServlet(holder, "/*");
             context.setMaxFormContentSize(this.config.getMaxFormSize());
+
+            int requestSizeLimit = this.config.getRequestSizeLimit();
+            int responseSizeLimit = this.config.getResponseSizeLimit();
+            if (requestSizeLimit > -1 || responseSizeLimit > -1) {
+                // Use SizeLimitHandler to limit the size of the request body and response
+                // -1 is unlimited
+                context.setHandler(new SizeLimitHandler(requestSizeLimit, responseSizeLimit));
+            }
 
             if (this.config.isRegisterMBeans())
             {
@@ -389,6 +431,9 @@ public final class JettyService
                     ThreadPool.SizedThreadPool sizedThreadPool = (ThreadPool.SizedThreadPool) threadPool;
                     message.append("minThreads=").append(sizedThreadPool.getMinThreads()).append(",");
                     message.append("maxThreads=").append(sizedThreadPool.getMaxThreads()).append(",");
+                } else if (threadPool instanceof VirtualThreadPool) {
+                    VirtualThreadPool sizedThreadPool = (VirtualThreadPool) threadPool;
+                    message.append("maxVirtualThreads=").append(sizedThreadPool.getMaxThreads()).append(",");
                 }
                 Connector connector = this.server.getConnectors()[0];
                 if (connector instanceof ServerConnector) {
@@ -397,6 +442,7 @@ public final class JettyService
                     message.append("acceptors=").append(serverConnector.getAcceptors()).append(",");
                     message.append("selectors=").append(serverConnector.getSelectorManager().getSelectorCount());
                 }
+                message.append(",").append("virtualThreadsEnabled=").append(this.config.isUseVirtualThreads());
                 message.append("]");
 
                 SystemLogger.LOGGER.info(message.toString());
@@ -432,6 +478,21 @@ public final class JettyService
         {
             SystemLogger.LOGGER.warn("Jetty not started (HTTP and HTTPS disabled)");
         }
+    }
+
+    private void addErrorHandler(String errorPageCustomHeaders) {
+            final String[] customHeaders = errorPageCustomHeaders.split("##");
+            final Map<String, String> headers = new HashMap<>();
+            for (String customHeader : customHeaders) {
+                if (customHeader == null || !customHeader.contains("=") || customHeader.endsWith("=")) {
+                    SystemLogger.LOGGER.warn("Ignoring invalid error page custom header: {}", customHeader);
+                    continue;
+                }
+                final String key = customHeader.substring(0, customHeader.indexOf("="));
+                final String value = customHeader.substring(customHeader.indexOf("=") + 1);
+                headers.put(key.trim(), value.trim());
+            }
+            this.server.setErrorHandler(new JettyErrorHandler(headers));
     }
 
     private static String fixJettyVersion(final BundleContext ctx)
@@ -669,6 +730,12 @@ public final class JettyService
         connector.setHost(this.config.getHost());
         connector.setIdleTimeout(this.config.getHttpTimeout());
 
+        if (this.config.getAcceptQueueSize() > -1) {
+            // Set the accept queue size only if explicitly configured
+            // otherwise leave the default to Jetty to decide
+            connector.setAcceptQueueSize(this.config.getAcceptQueueSize());
+        }
+
         if (this.config.isRegisterMBeans())
         {
             connector.addBean(new ConnectionStatistics());
@@ -681,7 +748,8 @@ public final class JettyService
         config.setRequestHeaderSize(this.config.getHeaderSize());
         config.setResponseHeaderSize(this.config.getHeaderSize());
         config.setOutputBufferSize(this.config.getResponseBufferSize());
- 
+        config.setRelativeRedirectAllowed(this.config.getBooleanProperty(JettyConfig.FELIX_JETTY_ALLOW_RELATIVE_REDIRECTS, true));
+
         String uriComplianceMode = this.config.getProperty(JettyConfig.FELIX_JETTY_URI_COMPLIANCE_MODE, null);
         if (uriComplianceMode != null) {
             try {

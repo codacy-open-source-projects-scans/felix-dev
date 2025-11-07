@@ -88,6 +88,9 @@ public final class JettyConfig
     /** Felix specific property to control the maximum size of the jetty thread pool */
     public static final String FELIX_JETTY_THREADPOOL_MAX = "org.apache.felix.http.jetty.threadpool.max";
 
+    /** Felix specific property to enable the use of virtual threads in Jetty */
+    public static final String FELIX_JETTY_USE_VIRTUAL_THREADS = "org.apache.felix.http.jetty.virtualthreads.enable";
+
     /** Felix specific property to control the number of jetty acceptor threads */
     public static final String FELIX_JETTY_ACCEPTORS = "org.apache.felix.http.jetty.acceptors";
 
@@ -103,8 +106,20 @@ public final class JettyConfig
     /** Felix specific property to configure the request buffer size. Default is 24KB */
     public static final String FELIX_JETTY_RESPONSE_BUFFER_SIZE = "org.apache.felix.http.jetty.responseBufferSize";
 
-    /** Felix specific property to configure the max form size. Default is 200KB */
+    /** Felix specific property to configure the max form size. Default is 200KB. */
     public static final String FELIX_JETTY_MAX_FORM_SIZE = "org.apache.felix.http.jetty.maxFormSize";
+
+    /** Felix specific property to configure the request size limit. Default is unlimited. See https://jetty.org/docs/jetty/12/programming-guide/server/http.html#handler-use-size-limit */
+    public static final String FELIX_JETTY_REQUEST_SIZE_LIMIT = "org.apache.felix.http.jetty.requestSizeLimit";
+
+    /** Felix specific property to configure the response size limit. Default is unlimited. See https://jetty.org/docs/jetty/12/programming-guide/server/http.html#handler-use-size-limit */
+    public static final String FELIX_JETTY_RESPONSE_SIZE_LIMIT = "org.apache.felix.http.jetty.responseSizeLimit";
+
+    /** Felix specific property to configure the accept queue size. Default is not setting it, leaving it up to Jetty. */
+    public static final String FELIX_JETTY_ACCEPT_QUEUE_SIZE = "org.apache.felix.http.jetty.acceptQueueSize";
+
+    /** Felix specific property to configure the custom headers to add to all error pages served by Jetty. Separate key-value pairs with ##. */
+    public static final String FELIX_JETTY_ERROR_PAGE_CUSTOM_HEADERS = "org.apache.felix.http.jetty.errorPageCustomHeaders";
 
     /** Felix specific property to enable Jetty MBeans. Valid values are "true", "false". Default is false */
     public static final String FELIX_HTTP_MBEANS = "org.apache.felix.http.mbeans";
@@ -279,6 +294,9 @@ public final class JettyConfig
 
     /** Felix specific property to control whether an OSGi configuration is required */
     private static final String FELIX_REQUIRE_OSGI_CONFIG = "org.apache.felix.http.require.config";
+
+    /** Jetty specific property to control relative redirect handling (defaults to true) */
+    public static final String FELIX_JETTY_ALLOW_RELATIVE_REDIRECTS = "org.apache.felix.jetty.relativeredirectallowed";
 
     private static String validateContextPath(String ctxPath)
     {
@@ -471,6 +489,10 @@ public final class JettyConfig
         return getIntProperty(FELIX_JETTY_SELECTORS, -1);
     }
 
+    public boolean isUseVirtualThreads() {
+        return this.getBooleanProperty(FELIX_JETTY_USE_VIRTUAL_THREADS, false);
+    }
+
     public int getRequestBufferSize()
     {
         return getIntProperty(FELIX_JETTY_REQUEST_BUFFER_SIZE, 8 * 1024);
@@ -484,6 +506,25 @@ public final class JettyConfig
     public int getMaxFormSize()
     {
         return getIntProperty(FELIX_JETTY_MAX_FORM_SIZE, 200 * 1024);
+    }
+
+    public int getRequestSizeLimit()
+    {
+        return getIntProperty(FELIX_JETTY_REQUEST_SIZE_LIMIT, -1);
+    }
+
+    public int getResponseSizeLimit()
+    {
+        return getIntProperty(FELIX_JETTY_RESPONSE_SIZE_LIMIT, -1);
+    }
+
+    public int getAcceptQueueSize() {
+        // Jetty default is 0 meaning that the OS default is used
+        return getIntProperty(FELIX_JETTY_ACCEPT_QUEUE_SIZE, -1);
+    }
+
+    public String getFelixJettyErrorPageCustomHeaders() {
+        return getProperty(FELIX_JETTY_ERROR_PAGE_CUSTOM_HEADERS, null);
     }
 
     /**
