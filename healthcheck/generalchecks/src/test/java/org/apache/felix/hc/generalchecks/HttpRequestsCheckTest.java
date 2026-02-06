@@ -80,7 +80,36 @@ public class HttpRequestsCheckTest {
         assertThat(proxyAddress, containsString("proxy"));
         assertThat(proxyAddress, containsString(":2000"));
     }
-    
+
+    @Test
+    public void testDefaultRequestOptionsAppliedToSpecs() throws Exception {
+        HttpRequestsCheck httpRequestsCheck = new HttpRequestsCheck(
+                createConfigWithDefaults("/path/to/page.html", "-X HEAD -H \"X-Test: Default\" -H \"Accept: text/plain\""),
+                Mockito.mock(BundleContext.class));
+
+        RequestSpec requestSpec = httpRequestsCheck.getRequstSpecs().get(0);
+        assertEquals("/path/to/page.html", requestSpec.url);
+        assertEquals("HEAD", requestSpec.method);
+        HashMap<String, String> expectedHeaders = new HashMap<String,String>();
+        expectedHeaders.put("X-Test", "Default");
+        expectedHeaders.put("Accept", "text/plain");
+        assertEquals(expectedHeaders, requestSpec.headers);
+    }
+
+    @Test
+    public void testDefaultRequestOptionsOverriddenByRequestSpec() throws Exception {
+        HttpRequestsCheck httpRequestsCheck = new HttpRequestsCheck(
+                createConfigWithDefaults("-X POST -H \"X-Test: Specific\" /path/to/page.html", "-H \"X-Test: Default\""),
+                Mockito.mock(BundleContext.class));
+
+        RequestSpec requestSpec = httpRequestsCheck.getRequstSpecs().get(0);
+        assertEquals("/path/to/page.html", requestSpec.url);
+        assertEquals("POST", requestSpec.method);
+        HashMap<String, String> expectedHeaders = new HashMap<String,String>();
+        expectedHeaders.put("X-Test", "Specific");
+        assertEquals(expectedHeaders, requestSpec.headers);
+    }
+
     @Test
     public void testSimpleRequestSpec() throws Exception {
 
@@ -96,6 +125,15 @@ public class HttpRequestsCheckTest {
         entry = fakeRequestForSpecAndReturnResponse(requestSpec, simple200HtmlResponse);
         assertEquals(Result.Status.WARN, entry.getStatus());
         assertThat(entry.getMessage(), containsString("200 (expected 401)"));
+    }
+
+    @Test
+    public void testSimpleRequestSpecIsTrimmed() throws Exception {
+
+        HttpRequestsCheck.RequestSpec requestSpec = new HttpRequestsCheck.RequestSpec("https://www.google.com/ => 200 ");
+        Entry entry = fakeRequestForSpecAndReturnResponse(requestSpec, simple200HtmlResponse);
+        assertEquals(Result.Status.OK, entry.getStatus());
+
     }
     
     @Test
@@ -115,8 +153,8 @@ public class HttpRequestsCheckTest {
 
     private Entry fakeRequestForSpecAndReturnResponse(HttpRequestsCheck.RequestSpec requestSpecOrig, HttpRequestsCheck.Response response) throws Exception {
         RequestSpec requestSpec = Mockito.spy(requestSpecOrig);
-        doReturn(response).when(requestSpec).performRequest(anyString(), anyString(), anyInt(), anyInt(), any(FormattingResultLog.class));
-        FormattingResultLog resultLog = requestSpec.check("http://localhost:8080", 10000, 10000, Result.Status.WARN, true);
+        doReturn(response).when(requestSpec).performRequest(anyString(), anyString(), anyInt(), anyInt(), any(FormattingResultLog.class), any(HttpRequestsCheckTrustedCerts.class));
+        FormattingResultLog resultLog = requestSpec.check("http://localhost:8080", 10000, 10000, Result.Status.WARN, true, null);
         Iterator<Entry> entryIt = resultLog.iterator();
         Entry lastEntry = null;
         while(entryIt.hasNext()) {
@@ -207,7 +245,7 @@ public class HttpRequestsCheckTest {
     @Test
     public void testRelativeUrlWithoutHttpServiceReturnsUnavailableLog() throws Exception {
         HttpRequestsCheck.RequestSpec requestSpec = new HttpRequestsCheck.RequestSpec("/path/to/page.html");
-        FormattingResultLog resultLog = requestSpec.check(null, 1000, 1000, Result.Status.WARN, false);
+        FormattingResultLog resultLog = requestSpec.check(null, 1000, 1000, Result.Status.WARN, false, null);
 
         Iterator<Entry> entryIt = resultLog.iterator();
         Entry lastEntry = null;
@@ -220,6 +258,10 @@ public class HttpRequestsCheckTest {
     }
 
     private HttpRequestsCheck.Config createConfig() {
+        return createConfigWithDefaults("/path/to/page.html", "");
+    }
+
+    private HttpRequestsCheck.Config createConfigWithDefaults(String requestSpec, String defaultRequestOptions) {
         return new HttpRequestsCheck.Config() {
             @Override
             public String hc_name() {
@@ -233,7 +275,12 @@ public class HttpRequestsCheckTest {
 
             @Override
             public String[] requests() {
-                return new String[] { "/path/to/page.html" };
+                return new String[] { requestSpec };
+            }
+
+            @Override
+            public String defaultRequestOptions() {
+                return defaultRequestOptions;
             }
 
             @Override
@@ -257,6 +304,11 @@ public class HttpRequestsCheckTest {
             }
 
             @Override
+            public String[] trustedCertificates() {
+                return new String[0];
+            }
+
+            @Override
             public String webconsole_configurationFactory_nameHint() {
                 return "{hc.name}: {requests}";
             }
@@ -267,6 +319,5 @@ public class HttpRequestsCheckTest {
             }
         };
     }
-
 
 }
